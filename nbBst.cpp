@@ -6,6 +6,7 @@
 #define GET_DATA_PTR(pointer) (((Node *)((uintptr_t)pointer & ~0x03))->data)
 #define GET_DATA(pointer) *(int *)((uintptr_t)pointer & ~0x03)
 #define GET_ADDR(node) (Node *)((uintptr_t)node & ~0x03)
+#define IS_VALID(node) ()
 #define CAS(ptr, source, sourceStatus, target, targetStatus) \
 	__sync_bool_compare_and_swap( \
 		ptr,\
@@ -47,10 +48,17 @@ public:
 		Node *pred = startNode;
 		Node *curr = startNode;
 		Node *ancNode = startNode;
+		int ancNodeDataPrev, ancNodeDataCurr; 
 		while(true) {
 			if (ISNULL(curr)) {
 				// Here actual insertion happens.
 				// Before inserting, we also need to check the validity of insertion.
+				ancNodeDataCurr = GET_DATA(GET_DATA_PTR(ancNode));
+				if (ancNodeDataPrev != ancNodeDataCurr)
+					// This is to invalidate any on going operations. 
+					// We are restarting for now, but later, we must backtrack
+					// Also this code must be optimized.
+					return insert_tree(root, data);
 				int *predDataPointer = pred->data;
 				int predData = GET_DATA(predDataPointer);
 				Node *node = new Node(data);
@@ -58,7 +66,7 @@ public:
 					if (CAS(&pred->child[RIGHT], curr, NULLPTR, node, NORMAL))
 						return true;
 					else
-						/* This is the retrial point. Here we are restrating for now, but, we need to back track
+						/* This is the retrial point. Here we are restrating for now, but, we need to back track (or) help
 						in future */
 						return insert_tree(root, data);
 				}
@@ -66,7 +74,7 @@ public:
 					if (CAS(&pred->child[LEFT], curr, NULLPTR, node, NORMAL))
 						return true;
 					else
-						/* This is the retrial point. Here we are restrating for now, but, we need to back track
+						/* This is the retrial point. Here we are restrating for now, but, we need to back track (or) help
 						in future */
 						return insert_tree(root, data);
 				}
@@ -83,7 +91,7 @@ public:
 				pred = GET_ADDR(curr), curr = curr->child[RIGHT];
 			}
 			else if (data < currData) {
-				ancNode = pred, pred = GET_ADDR(curr), curr = curr->child[LEFT]; 
+				ancNode = pred, ancNodeDataPrev = GET_DATA(GET_DATA_PTR(ancNode)), pred = GET_ADDR(curr), curr = curr->child[LEFT]; 
 			}
 		}		
 	}
@@ -108,7 +116,7 @@ public:
 void testbenchSequential() {
 	nbBst myTree;
 	srand(time(NULL));
-	for (int i = 0; i < 100; i++)
+	for (int i = 0; i < 10; i++)
 		myTree.insert(rand());
 	myTree.print();
 }
