@@ -5,6 +5,12 @@
 #define ISNULL(pointer) (((uintptr_t)pointer & 0x03) == NULLPTR)
 #define GET_DATA(pointer) *(int *)((uintptr_t)pointer & ~0x03)
 #define GET_ADDR(node, lr) (Node *)((uintptr_t)node->child[lr] & ~0x03)
+#define CAS(ptr, source, sourceStatus, target, targetStatus) \
+	__sync_bool_compare_and_swap( \
+		ptr,\
+		MARK_NODE(source, sourceStatus),\
+		MARK_NODE(target, targetStatus) )
+
 
 enum status_t {
 	NORMAL,
@@ -43,6 +49,25 @@ public:
 		while(true) {
 			if (ISNULL(curr)) {
 				// Here actual insertion happens.
+				int *predDataPointer = pred->data;
+				int predData = GET_DATA(predDataPointer);
+				Node *node = new Node(data);
+				if (data > predData) {
+					if (CAS(&pred->child[RIGHT], curr, NULLPTR, node, NORMAL))
+						return true;
+					else
+						/* This is the retrial point. Here we are restrating for now, but, we need to back track
+						in future */
+						return insert_tree(root, data);
+				}
+				else {
+					if (CAS(&pred->child[LEFT], curr, NULLPTR, node, NORMAL))
+						return true;
+					else
+						/* This is the retrial point. Here we are restrating for now, but, we need to back track
+						in future */
+						return insert_tree(root, data);
+				}
 			}
 			int *dataPointer = curr->data;
 			int currData = GET_DATA(dataPointer);
