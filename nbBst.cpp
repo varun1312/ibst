@@ -107,11 +107,9 @@ public:
 
 void testbenchSequential() {
 	nbBst myTree;
-	myTree.insert(10);
-	myTree.insert(20);
-	myTree.insert(30);
-	myTree.insert(40);
-	myTree.insert(50);
+	srand(time(NULL));
+	for (int i = 0; i < 100; i++)
+		myTree.insert(rand());
 	myTree.print();
 }
 
