@@ -52,12 +52,14 @@ public:
 		while(true) {
 			if (ISNULL(curr)) {
 				// Here we will insert data.
+				// Here we need to check the validity of insert.
 				int predData = GETDATA(pred);
 				Node *node = new Node(data);
 				if (data > predData) {
 					if (CAS(&pred->child[RIGHT], curr, NULLPTR, node, NORMAL))
 						return true;
-					else 
+					else
+						// We need to back track instead of resrart 
 						return insert_tree(root, data);
 				}
 				else {
@@ -107,7 +109,21 @@ void testbenchSequential() {
 	myTree.print();
 }
 
+void testbenchParallel() {
+	std::cout<<"In Parallel Testbench"<<std::endl;
+	nbBst myTree;
+	srand(time(NULL));
+	const int numThreads = 100;
+	std::vector<std::thread> addT(numThreads);
+	for (int i = 0; i < numThreads; i++)
+		addT[i] = std::thread(&nbBst::insert, &myTree, rand());
+	for (int i = 0; i < numThreads; i++)
+		addT[i].join();
+	myTree.print();
+}
+
 int main() {
-	testbenchSequential();
+	//testbenchSequential();
+	testbenchParallel();
 	return 0;
 }
