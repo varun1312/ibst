@@ -3,10 +3,15 @@
 #include <vector>
 #include <thread>
 
+#define MARKNODE(pointer, status) (((uintptr_t)pointer & ~0x03) | status)
 #define ISNULL(ptr) (((uintptr_t)ptr & 0x03) == NULLPTR)
-#define ISSPLPTR(ptr) (ptr == NULL)
 #define GETDATA(ptr) *(int *)((uintptr_t)(((Node *)((uintptr_t)ptr & ~0x03))->dataPtr) & ~0x03)
 #define GETADDR(ptr) (Node *)((uintptr_t)ptr & ~0x03)
+#define CAS(ptr, source, sourceStatus, target, targetStatus) \
+	__sync_bool_compare_and_swap(\
+		ptr, \
+		MARKNODE(source, sourceStatus), \
+		MARKNODE(target, targetStatus))
 
 enum status_t {
 	NORMAL,
@@ -45,9 +50,22 @@ public:
 		int currData;
 		int ancNodeDataPrev, ancNodeDataCurr;
 		while(true) {
-			if (ISNULL(curr) || ISSPLPTR(curr)) {
+			if (ISNULL(curr)) {
 				// Here we will insert data.
-				return true;
+				int predData = GETDATA(pred);
+				Node *node = new Node(data);
+				if (data > predData) {
+					if (CAS(&pred->child[RIGHT], curr, NULLPTR, node, NORMAL))
+						return true;
+					else 
+						return insert_tree(root, data);
+				}
+				else {
+					if (CAS(&pred->child[LEFT], curr, NULLPTR, node, NORMAL))
+						return true;
+					else
+						return insert_tree(root, data);
+				}
 			}
 			currData = GETDATA(curr);
 			if (data > currData) {
@@ -66,10 +84,27 @@ public:
 	bool insert(int data) {
 		return insert_tree(root, data);
 	}
+
+	void print_tree(Node *node) {
+		if (ISNULL(node))
+			return;
+		else
+			print_tree(node->child[LEFT]);
+			std::cout<<GETDATA(node)<<std::endl;
+			print_tree(node->child[RIGHT]);
+	}
+	
+	void print() {
+		return print_tree(root->child[LEFT]);
+	}
 };
 
 void testbenchSequential() {
 	nbBst myTree;
+	srand(time(NULL));
+	for (int i = 0; i < 10; i++)
+		myTree.insert(rand());
+	myTree.print();
 }
 
 int main() {
