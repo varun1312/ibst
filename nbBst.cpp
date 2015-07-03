@@ -14,6 +14,9 @@
 		MARKNODE(target, targetStatus))
 
 #define ISMARKED(node) \
+		((((uintptr_t)(((Node *)((uintptr_t)node & ~0x03))->dataPtr) & 0x03) == MARKED)  || \
+		 (((uintptr_t)node->child[RIGHT] & 0x03) == MARKED) || \
+		 (((uintptr_t)node->child[LEFT] & 0x03) == MARKED))
 
 enum status_t {
 	NORMAL,
@@ -29,8 +32,8 @@ enum {
 
 enum markStatus_t {
 	CALLREPLACE,
-	1CREMOVE,
-	0CREMOVE
+	REMOVE_1C,
+	REMOVE_0C
 };
 
 class nbBst {
