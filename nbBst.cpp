@@ -13,6 +13,8 @@
 		MARKNODE(source, sourceStatus), \
 		MARKNODE(target, targetStatus))
 
+#define ISMARKED(node) \
+
 enum status_t {
 	NORMAL,
 	MARKED,
@@ -23,6 +25,12 @@ enum status_t {
 enum {
 	LEFT,
 	RIGHT
+};
+
+enum markStatus_t {
+	CALLREPLACE,
+	1CREMOVE,
+	0CREMOVE
 };
 
 class nbBst {
@@ -42,6 +50,36 @@ public:
 	nbBst() {
 		root = new Node(INT_MAX);
 	}
+	
+	bool remove_tree(Node *node, int data) {
+		Node *pred = node;
+		Node *curr = node;
+		Node *ancNode = node;
+		int currData;
+		while(true) {
+			if (ISNULL(curr))
+				return false;
+			int *dP = (((Node *)((uintptr_t)curr & ~0x03))->dataPtr);
+			Node *rP = (((Node *)((uintptr_t)curr & ~0x03))->child[RIGHT]);
+			Node *lP = (((Node *)((uintptr_t)curr & ~0x03))->child[LEFT]);
+			currData = *(int *)((uintptr_t)dP & ~0x03) ;
+			if (data > currData) {
+				pred = GETADDR(curr), curr = curr->child[RIGHT];
+			}
+			else if (data < currData) {
+				ancNode = pred, pred = GETADDR(curr), curr = curr->child[LEFT];
+			}
+			else if (data == currData) {
+				// Here we call MARK method and then physically remove the data
+				// returning "true" for now;
+				return true;
+			}
+		}
+	}
+
+	bool remove(int data) {
+		return remove_tree(root, data);
+	}
 
 	bool insert_tree(Node *startNode, int data) {
 		Node *pred = startNode;
@@ -52,20 +90,24 @@ public:
 		while(true) {
 			if (ISNULL(curr)) {
 				// Here we will insert data.
-				// Here we need to check the validity of insert.
+				ancNodeDataCurr = GETDATA(ancNode);
+				if (ancNodeDataCurr != ancNodeDataPrev)
+					// We need to back track instead of restart 
+					return insert_tree(root, data);
 				int predData = GETDATA(pred);
 				Node *node = new Node(data);
 				if (data > predData) {
 					if (CAS(&pred->child[RIGHT], curr, NULLPTR, node, NORMAL))
 						return true;
 					else
-						// We need to back track instead of resrart 
+						// We need to back track instead of restart 
 						return insert_tree(root, data);
 				}
 				else {
 					if (CAS(&pred->child[LEFT], curr, NULLPTR, node, NORMAL))
 						return true;
 					else
+						// We need to back track instead of restart 
 						return insert_tree(root, data);
 				}
 			}
@@ -75,6 +117,7 @@ public:
 			}
 			else if (data < currData) {
 				ancNode = pred, pred = GETADDR(curr), curr = curr->child[LEFT];
+				ancNodeDataPrev = GETDATA(ancNode);
 			}
 			else if (data == currData) {
 				// Here check the validity of data;	
@@ -92,7 +135,8 @@ public:
 			return;
 		else
 			print_tree(node->child[LEFT]);
-			std::cout<<GETDATA(node)<<std::endl;
+			if (!ISMARKED(node))
+				std::cout<<GETDATA(node)<<std::endl;
 			print_tree(node->child[RIGHT]);
 	}
 	
@@ -113,7 +157,7 @@ void testbenchParallel() {
 	std::cout<<"In Parallel Testbench"<<std::endl;
 	nbBst myTree;
 	srand(time(NULL));
-	const int numThreads = 100;
+	const int numThreads = 10;
 	std::vector<std::thread> addT(numThreads);
 	for (int i = 0; i < numThreads; i++)
 		addT[i] = std::thread(&nbBst::insert, &myTree, rand());
