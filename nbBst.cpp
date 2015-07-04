@@ -36,15 +36,9 @@ enum {
 enum markStatus_t {
 	CALLREPLACE,
 	REMOVE_1C,
-	REMOVE_0C
+	REMOVE_0C,
+	REMOVE_PROMOTE
 	// Here the return status has to be updated.
-};
-
-enum markChildStatus_t {
-	PTRCHANGED,
-	HELP,
-	CHECKDATA,
-	MARKSUCCESSFUl
 };
 
 class nbBst {
@@ -65,23 +59,6 @@ public:
 		root = new Node(INT_MAX);
 	}
 
-	markChildStatus_t markNullChild(Node *node, int data, int lr, Node *ptr) {
-		if (CAS(&node->child[lr], ptr, NULLPTR, ptr, MARKED)) {
-			return MARKSUCCESSFUL;
-		}
-		switch (STATUS(node->child[lr])) {
-			case NORMAL:
-				// This means the pointer has changed.	
-				return PTRCHANGED;
-			case MARKED:
-				return true;
-			case PROMOTE:
-				return HELP;
-			case NULLPTR:
-				return CHECKDATA;
-		}
-	}
-	
 	markStatus_t mark(Node *node, int data) {
 		Node *rP = node->child[RIGHT];
 		Node *lP = node->child[LEFT];
@@ -89,7 +66,7 @@ public:
 		status_t rS = STATUS(rP);
 		bool rN = false, lN = false;
 		if ((STATUS(dP) == MARKED) && (GETADDR(rP) == INT_MAX))
-			return CALLHELP;
+			return CALLREPLACE;
 		if (rS == NULLPTR) {
 			if (CAS(&node->child[RIGHT], rP, rS, rP, MARKED)) {
 				rN = true;
@@ -100,7 +77,7 @@ public:
 					int *dP = node->dataPtr;
 					Node *rP = node->child[RIGHT];	
 					if ((STATUS(dP) == MARKED) && (GETADDR(rP) == INT_MAX))
-						return CALLHELP;
+						return CALLREPLACE;
 					if (STATUS(rP) == NORMAL) {
 						if (CAS(&node->child[RIGHT], rP, NORMAL, rP, MARKED)) 
 							break;
@@ -113,7 +90,8 @@ public:
 					}
 					if (status(rP) == PROMOTE) {
 						// here we must call helping replace node removal
-						return true;
+						printf("Enterring Promote Mode...\n");
+						return REMOVE_PROMOTE;
 					}
 					if (status(rP) == NULLPTR) {
 						if (CAS(&node->child[RIGHT], rP, NORMAL, rP, MARKED)) {
@@ -133,6 +111,7 @@ public:
 			}
 			else {
 				while(true) {
+					Node *lP = node->child[LEFT];	
 					if (STATUS(lP) == NORMAL) {
 						if (CAS(&node->child[LEFT], lP, NORMAL, lP, MARKED)) 
 							break;
@@ -153,24 +132,54 @@ public:
 				}
 			}
 		}
-		if (lS == NULLPTR) {
-			if (CAS(&node->child[LEFT], lP, lS, lP, MARKED)) {
-				// Mark Right;	
-				return true;
-			}
-			else {
-				while(true) {
-					// Read Node Left Again.
-					Node *lP = node->child[LEFT];
-					status_t lS = STATUS(lP);
-					if (lS == MARKED)
-						return true;
-					if (CAS(&node->child[LEFT], lP, lS, lP, MARKED)) {
+		while(true) {
+			int *dP = node->dataPtr;
+			Node *rP = node->child[RIGHT];	
+			if ((STATUS(dP) == MARKED) && (GETADDR(rP) == INT_MAX))
+				return CALLHELP;
+			if (STATUS(rP) == NORMAL) {
+				if (CAS(&node->child[RIGHT], rP, NORMAL, rP, MARKED)) 
 						break;
-					}
-				}
+				continue;
+			}
+			if (STATUS(rP) == MARKED) {
+				if (GETADDR(rP) == GETDATA(node))
+					rN = true;
+				break;
+			}
+			if (status(rP) == PROMOTE) {
+				// here we must call helping replace node removal
+				printf("Enterring Promote Mode...\n");
+				return REMOVE_PROMOTE;
+			}
+			if (status(rP) == NULLPTR) {
+				if (CAS(&node->child[RIGHT], rP, NORMAL, rP, MARKED)) {
+					rN = true;
+				break;
 			}
 		}
+		while(true) {
+			Node *lP = node->child[LEFT];	
+			if (STATUS(lP) == NORMAL) {
+				if (CAS(&node->child[LEFT], lP, NORMAL, lP, MARKED)) 
+					break;
+				continue;
+			}
+			if (STATUS(lP) == MARKED) {
+				if (GETADDR(lP) == GETDATA(node))
+					lN = true;
+				break;
+			}
+			if (status(lP) == NULLPTR) {
+				if (CAS(&node->child[LEFT], lP, NORMAL, lP, MARKED)) {
+					lN = true;
+				break;
+			}
+		}
+		if (rN == true) && (lN == true)
+			return REMOVE_0C;
+		else if ((rN == true) || (lN == true))
+			return REMOVE_1C;
 	}
 	
 	bool remove_tree(Node *node, int data) {
