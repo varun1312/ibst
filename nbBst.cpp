@@ -4,9 +4,8 @@
 #include <thread>
 
 #define GETDATA(node) *(int *)(((uintptr_t)(((Node *)((uintptr_t)node & ~0x03))->dataPtr)) & ~0x03)
-#define GETADDR(node, lr)  (Node *)((uintptr_t)node->child[lr] & ~0x03)
-#define ISNULL(node) (node == NULL)
-#define ISUNQNULL(node) (((uintptr_t)node & 0x03) == UNQNULL)
+#define GETADDR(node)  (Node *)((uintptr_t)node & ~0x03)
+#define ISNULL(node) ((status_t)((uintptr_t)node & 0x03) == UNQNULL)
 #define MARKNODE(node, status) (((uintptr_t) node & ~0x03) | status)
 #define CAS(ptr, source, sourceState, target, targetState) \
 		__sync_bool_compare_and_swap(\
@@ -41,7 +40,7 @@ private:
 		Node *child[2];
 		Node(int data) {
 			this->dataPtr = new int(data);
-			child[LEFT] = child[RIGHT] = NULL;	
+			child[LEFT] = child[RIGHT] = (Node *)UNQNULL;	
 		}
 	};
 
@@ -52,7 +51,7 @@ public:
 		std::cout<<"Initialized root of the tree"<<std::endl;
 	}
 
-	void markLeft(Node *node) {
+/*	void markLeft(Node *node) {
 		while(true) {
 			Node *leftPtr = ((Node *)((uintptr_t)node & ~0x03))->child[LEFT];
 			Node *n = ((Node *)((uintptr_t)node & ~0x03));
@@ -93,7 +92,7 @@ public:
 				1. rP changed from NULL to NON NULL.
 				2. Status changed from NORMAL to MARKED
 				3. Status changed from NORMAL to PROMOTE
-				4. Status changed from NORMAL to UNQNULL */
+				4. Status changed from NORMAL to UNQNULL 
 				while(true) {
 					Node *rP = ((Node *)((uintptr_t)node & ~0x03))->child[RIGHT];
 					if (!(ISNULL(rP) || (ISUNQNULL(rP)))) {	
@@ -106,39 +105,19 @@ public:
 						markLeft(node);
 					}
 					else if (STATUS(rP) == UNQNULL) {
-						if (CAS(&node->child[RIGHT], rP, NORMAL, NULL, MARKED)) {
-							// Mark left for Sure
-							markLeft(node);
-						}
+						int *dP = ((Node *)((uintptr_t)node & ~0x03))->dataPtr;
+						if ((status_t)((uintptr_t)dP & 0x03) == MAKRED)
+							return HELPREMOVE;
+						return ABORTREMOVE;
 					}
 				}
 			}
 		}
 		else if (ISUNQNULL(rP)) {
-			// Mark Right and then Mark Left
-			if (CAS(&node->child[RIGHT], rP, NORMAL, NULL, MARKED)) {
-				// Mark Left For Sure
-				markLeft(node);
-			}
-			else {
-				/* CAS Failed. CAS can fail because of the following 
-				reasons:
-				1. rP is not the child of node
-				2. rP status changed from NORMAL to MARKED
-				3. rP status changed from NORMAL to PROMOTE */
-				while(true) {
-					Node *rP = ((Node *)((uintptr_t)node & ~0x03))->child[RIGHT];
-					if (!ISNULL(rP) || !ISUNQNULL(rP))
-						break;
-					if (STATUS(rP) == MARKED) {
-						// Mark Left For Sure
-						markLeft(node);
-					}
-					else if (STATUS(rP) == PROMOTE) {
-						return CALL_REMOVE_PROMOTE;
-					}
-				}				
-			}
+			int *dP = ((Node *)((uintptr_t)node & ~0x03))->dataPtr;
+			if ((status_t)((uintptr_t)dP & 0x03) == MAKRED)
+				return HELPREMOVE;
+			return ABORTREMOVE;
 		}
 		if (ISNULL(lP)) {
 			if (CAS(&node->child[LEFT], NULL, NORMAL, NULL, MARKED)) {
@@ -147,10 +126,10 @@ public:
 				markRightStatus_t rightStatus = markRight(node);
 			}
 			else {
-				/* CAS failed. CAS can fail because of the following
+				 CAS failed. CAS can fail because of the following
 				reasons:
 				1. lP changed from NULL to a regular pointer
-				2. Status of LP changed from NORMAL to MARKED */
+				2. Status of LP changed from NORMAL to MARKED 
 				while(true) {
 					Node *lP = ((Node *)((uintptr_t)node & ~0x03))->child[LEFT];
 					if (!ISNULL(lP) && !ISUNQNULL(lP))
@@ -164,14 +143,14 @@ public:
 			}
 		}
 	}
-	
+*/	
 	bool remove_tree(Node *startNode, int data)	 {
 		Node *pred = startNode;
 		Node *curr = startNode;
 		Node *ancNode = startNode;
 		int ancNodeDataSeen, ancNodeDataCurr;
 		while(true) {
-			if (ISNULL(curr) || ISUNQNULL(curr)) {
+			if (ISNULL(curr)) {
 				ancNodeDataCurr = GETDATA(ancNode);
 				if ((ancNodeDataSeen != ancNodeDataCurr) && (data > ancNodeDataCurr))
 					return remove_tree(ancNode, data);
@@ -179,14 +158,14 @@ public:
 			}
 			int currData = GETDATA(curr);
 			if (data > currData) {
-				pred = curr;
-				curr = GETADDR(curr, RIGHT);
+				pred = GETADDR(curr);
+				curr = curr->child[RIGHT]; 
 			}
 			else if (data < currData) {
 				ancNode = pred;
 				ancNodeDataSeen = GETDATA(ancNode);
-				pred = curr;
-				curr = GETADDR(curr, LEFT);
+				pred = GETADDR(curr);
+				curr = curr->child[LEFT]; 
 			}
 			else if (data == currData) {
 				// Here we mark the node;
@@ -227,24 +206,18 @@ public:
 				int ancNodeDataCurr = GETDATA(ancNode);
 				if ((ancNodeDataSeen != ancNodeDataCurr) && (data > ancNodeDataCurr))
 					return insert_tree(ancNode, data);
-				return insert_data(pred, curr, NORMAL, data);	
-			}
-			if (ISUNQNULL(curr)) {
-				int ancNodeDataCurr = GETDATA(ancNode);
-				if ((ancNodeDataSeen != ancNodeDataCurr) && (data > ancNodeDataCurr))
-					return insert_tree(ancNode, data);
-				return insert_data(pred, curr, UNQNULL, data);
+				return insert_data(pred, curr, UNQNULL, data);	
 			}
 			int currData = GETDATA(curr);
 			if (data > currData) {
-				pred = curr;
-				curr = GETADDR(curr, RIGHT);
+				pred = GETADDR(curr);
+				curr = pred->child[RIGHT]; 
 			}
 			else if (data < currData) {
 				ancNode = pred;
 			    ancNodeDataSeen = GETDATA(ancNode);
-				pred = curr;
-				curr = GETADDR(curr, LEFT);
+				pred = GETADDR(curr);
+				curr = pred->child[LEFT];
 			}
 			else if (data == currData) {
 				return false;
@@ -257,7 +230,7 @@ public:
 	}
 	
 	void print_tree(Node *node) {
-		if (ISNULL(node) || ISUNQNULL(node))
+		if (ISNULL(node))
 			return;
 		print_tree(((Node *)((uintptr_t)node & ~0x03))->child[LEFT]);
 		std::cout<<GETDATA(node)<<std::endl;
