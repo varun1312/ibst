@@ -291,6 +291,7 @@ void testbenchParallel() {
 	srand(time(NULL));
 	const int numThreads = 100;
 	std::vector<std::thread> addT(numThreads);
+	std::vector<std::thread> removeT(numThreads);
 	int arr[numThreads];
 	for (int i = 0; i < numThreads; i++)
 		arr[i] = rand();
@@ -301,7 +302,9 @@ void testbenchParallel() {
 	myTree.print();
 	std::cout<<"Removing Elements"<<std::endl;
 	for (int i = 0; i < numThreads; i++)
-		myTree.remove(arr[i]);
+		removeT[i] = std::thread(&nbBst::remove, &myTree, arr[(i+5)%numThreads]);
+	for (int i = 0; i < numThreads; i++)
+		removeT[i].join();
 /*	int removeElement;
 	while(removeElement != -1) {
 		std::cout<<"Enter an element to remove : ";
