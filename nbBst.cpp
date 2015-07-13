@@ -14,10 +14,20 @@
 		ptr, \
 		MARKNODE(source, sourceState), \
 		MARKNODE(target, targetState))
+#define ISMARKED(node) ((STATUS(GETADDR(node)->child[RIGHT]) == MARKED) || (STATUS(GETADDR(node)->child[LEFT]) == MARKED) || (STATUS(GETADDR(node)->dataPtr) == MARKED))
 	
+
 
 const int LEFT = 0, RIGHT = 1;
 const int NORMAL = 0, MARKED = 1, PROMOTE = 2, UNQNULL = 3;
+
+enum markStatus_t {
+	REMOVE_0C,
+	REMOVE_1C,
+	REMOVE_2C,
+	ABORT_REMOVE
+};
+
 class nbBst {
 private:
 	class Node {
@@ -33,6 +43,125 @@ private:
 public:
 	nbBst() {
 		root = new Node(INT_MAX);
+	}
+
+	markStatus_t markNode(Node *node, int* dataPtr, int data) {
+		Node *rp = GETADDR(node)->child[RIGHT];
+		while(STATUS(rp) != NORMAL) {
+			if (GETADDR(rp) == root) {
+				// Based on data status, go and help or remove the node
+			}
+			if (STATUS(rp) == MARKED) {
+				// Mark Left irrespective of any reason
+				Node *lp = GETADDR(node)->child[LEFT];
+				while(STATUS(lp) != MARKED) {
+					if (STATUS(lp) == NORMAL) {
+						if (CAS(&GETADDR(node)->child[LEFT], lp, NORMAL, lp, MARKED)) {
+							break;
+						}
+					}
+					else if (STATUS(lp) == UNQNULL) {
+						if (CAS(&GETADDR(node)->child[LEFT], lp, UNQNULL, NULL, MARKED)) {
+							break;
+						}
+					}
+					lp = GETADDR(node)->child[LEFT];
+				}
+				// Break the loop.
+				break;
+			}
+			else if (STATUS(rp) == PROMOTE) {
+				// go and help remove. This is a bit tricky. It must be dealt with care
+			}
+			else if (STATUS(rp) == UNQNULL) {
+				if (CAS(&GETADDR(node)->child[RIGHT], rp, UNQNULL, NULL, MARKED)) {
+					// Mark Left irrespective of any reason
+					Node *lp = GETADDR(node)->child[LEFT];
+					while(STATUS(lp) != MARKED) {
+						if (STATUS(lp) == NORMAL) {
+							if (CAS(&GETADDR(node)->child[LEFT], lp, NORMAL, lp, MARKED)) {
+								break;
+							}
+						}
+						else if (STATUS(lp) == UNQNULL) {
+							if (CAS(&GETADDR(node)->child[LEFT], lp, UNQNULL, NULL, MARKED)) {
+								break;
+							}
+						}
+						lp = GETADDR(node)->child[LEFT];
+					}
+					// Break the loop.
+					break;
+				}
+			}				
+			rp = GETADDR(node)->child[RIGHT];
+		}
+		Node *lp = GETADDR(node)->child[LEFT];
+		while(STATUS(lp) != NORMAL) {
+			if (STATUS(lp) == MARKED) {
+				// Check and mark right. This is a very tricky code.
+				Node *rp = GETADDR(node)->child[RIGHT];
+				while(STATUS(rp) != MARKED) {
+					if (STATUS(rp) == MARKED) {
+						break;
+					}
+					else if (STATUS(rp) == NORMAL) {
+						if (CAS(&GETADDR(node)->child[RIGHT], rp, NORMAL, rp, MARKED)) {
+							break;
+						}
+					}
+					else if (STATUS(rp) == UNQNULL) {
+						if (CAS(&GETADDR(node)->child[RIGHT], rp, UNQNULL, NULL, MARKED)) {
+							break;
+						}
+					}
+					else if (STATUS(rp) == PROMOTE) {
+						// This is a very tricky code. Here we must help remove
+					}
+					rp = GETADDR(node)->child[RIGHT];
+				}	
+				// Break the loop;
+				break;
+			}
+			else if (STATUS(lp) == UNQNULL) {
+				if (CAS(&GETADDR(node)->child[LEFT], lp, UNQNULL, NULL, MARKED)) {
+					// Check and mark right. This is a very tricky code.
+					while(STATUS(rp) != MARKED) {
+						if (STATUS(rp) == MARKED) {
+							break;
+						}
+						else if (STATUS(rp) == NORMAL) {
+							if (CAS(&GETADDR(node)->child[RIGHT], rp, NORMAL, rp, MARKED)) {
+								break;
+							}
+						}
+						else if (STATUS(rp) == UNQNULL) {
+							if (CAS(&GETADDR(node)->child[RIGHT], rp, UNQNULL, NULL, MARKED)) {
+								break;
+							}
+						}
+						else if (STATUS(rp) == PROMOTE) {
+							// This is a very tricky code. Here we must help remove
+						}
+						rp = GETADDR(node)->child[RIGHT];
+					}
+					// Break the loop;
+					break;
+				}
+			}
+		}
+		// Here we check the status of the node and then return appropriate value
+		Node *rP = GETADDR(node)->child[RIGHT];
+		Node *lP = GETADDR(node)->child[LEFT];
+		if ((GETADDR(rP) == NULL) && (GETADDR(lP) == NULL))
+			return REMOVE_0C;
+		else if ((GETADDR(rP) == NULL) || (GETADDR(lP) == NULL))
+			return REMOVE_1C;
+		if (CAS(&GETADDR(node)->dataPtr, dataPtr, NORMAL, dataPtr, MARKED))
+			return REMOVE_2C;
+		if (GETDATA(node) != data)
+			return ABORT_REMOVE;	
+		return REMOVE_2C;
 	}
 
 	bool remove_tree(Node *startNode, int data) {
@@ -60,6 +189,8 @@ public:
 			}
 			else if (data == currData) {
 				// Here we mark the data;
+				markStatus_t stat = markNode(curr, GETADDR(curr)->dataPtr, data);
+				//std::cout<<data<<" : "<<stat<<std::endl;
 				return true;
 			}
 		}
@@ -137,7 +268,8 @@ public:
 		if (ISNULL(node))
 			return;
 		print_tree(GETADDR(node)->child[LEFT]);
-		std::cout<<GETDATA(node)<<std::endl;
+		if (!ISMARKED(node))
+			std::cout<<GETDATA(node)<<std::endl;
 		print_tree(GETADDR(node)->child[RIGHT]);
 	}
 
@@ -159,10 +291,24 @@ void testbenchParallel() {
 	srand(time(NULL));
 	const int numThreads = 100;
 	std::vector<std::thread> addT(numThreads);
+	int arr[numThreads];
 	for (int i = 0; i < numThreads; i++)
-		addT[i] = std::thread(&nbBst::insert, &myTree, rand());
+		arr[i] = rand();
+	for (int i = 0; i < numThreads; i++)
+		addT[i] = std::thread(&nbBst::insert, &myTree, arr[i]);
 	for (int i = 0; i < numThreads; i++)
 		addT[i].join();
+	myTree.print();
+	std::cout<<"Removing Elements"<<std::endl;
+	for (int i = 0; i < numThreads; i++)
+		myTree.remove(arr[i]);
+/*	int removeElement;
+	while(removeElement != -1) {
+		std::cout<<"Enter an element to remove : ";
+		std::cin>>removeElement;
+		myTree.remove(removeElement);
+	}
+*/
 	myTree.print();
 }
 
